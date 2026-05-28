@@ -1,0 +1,9 @@
+{
+  "name": "선거운동 단속",
+  "short_name": "단속앱",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "orientation": "portrait"
+}
