@@ -14,6 +14,7 @@ function detectVoteType() {
   return 'early'
 }
 
+// 두 좌표 간 직선거리 (미터) — Haversine
 function calcDistance(lat1, lng1, lat2, lng2) {
   const R = 6371000, toRad = x => x * Math.PI / 180
   const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1)
@@ -21,8 +22,9 @@ function calcDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-function kakaoMapUrl(name, lat, lng) {
-  return `https://map.kakao.com/link/map/${encodeURIComponent(name)},${lat},${lng}`
+// 외부 지도 링크 (구글 지도 — 별도 등록 불필요)
+function externalMapUrl(lat, lng) {
+  return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
 }
 
 export default function App() {
@@ -46,96 +48,63 @@ export default function App() {
   const mapEl = useRef(null)
   const mapObj = useRef(null)
   const myMarker = useRef(null)
+  const myAccuracyCircle = useRef(null)
   const overlays = useRef([])
-  const openInfo = useRef(null)
 
-  // ═══ 지도 초기화 — 디버그 메시지 포함 ═══
-  const [mapStatus, setMapStatus] = useState('SDK 로딩 대기... (v8)')
-
+  // ═══ Leaflet 지도 초기화 ═══
   useEffect(() => {
-    let attempt = 0
+    if (!window.L || !mapEl.current || mapObj.current) return
 
-    const createMap = () => {
-      if (!mapEl.current || mapObj.current) return
-      try {
-        setMapStatus('지도 생성 중...')
-        const map = new window.kakao.maps.Map(mapEl.current, {
-          center: new window.kakao.maps.LatLng(37.5171, 126.8665),
-          level: 5,
-        })
-        map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT)
-        mapObj.current = map
-        setMapReady(true)
-        setMapStatus('✅ 지도 생성 완료')
-        setTimeout(() => setMapStatus(''), 3000)
-      } catch (e) {
-        setMapStatus('❌ 지도 생성 실패: ' + e.message)
-      }
-    }
+    const map = window.L.map(mapEl.current, {
+      center: [37.5171, 126.8665],  // 양천구청 중심
+      zoom: 14,
+      zoomControl: true,
+    })
 
-    const init = () => {
-      attempt++
-      // 1) 스크립트 자체가 아직 안 들어옴
-      if (!window.kakao?.maps) {
-        setMapStatus(`SDK 스크립트 로딩 중... (${attempt})`)
-        if (attempt > 50) { setMapStatus('❌ SDK 스크립트 로딩 실패 — API키 확인'); return }
-        setTimeout(init, 200)
-        return
-      }
-      // 2) autoload=false 캐시 버전 → kakao.maps.load() 호출 필요
-      if (typeof window.kakao.maps.load === 'function' && !window.kakao.maps.LatLng) {
-        setMapStatus('SDK load() 호출 중...')
-        window.kakao.maps.load(() => {
-          setMapStatus('SDK load() 완료')
-          createMap()
-        })
-        return
-      }
-      // 3) 정상 로딩 (autoload 없음) → LatLng 바로 사용 가능
-      if (window.kakao.maps.LatLng) {
-        createMap()
-        return
-      }
-      // 4) 그 외 (아직 준비 안 됨)
-      setMapStatus(`SDK 준비 대기 중... (${attempt})`)
-      if (attempt > 50) { setMapStatus('❌ SDK 준비 실패'); return }
-      setTimeout(init, 200)
-    }
-    init()
+    // OpenStreetMap 타일 (한글 도로명 포함)
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map)
+
+    mapObj.current = map
+    setMapReady(true)
   }, [])
 
-  // 탭 복귀 시 relayout
+  // 탭 복귀 시 지도 크기 재계산
   useEffect(() => {
-    if (tab === 'map' && mapObj.current) setTimeout(() => mapObj.current.relayout(), 50)
+    if (tab === 'map' && mapObj.current) setTimeout(() => mapObj.current.invalidateSize(), 50)
   }, [tab])
 
-  // 마커+원 그리기
+  // 마커 + 100m 원 그리기
   useEffect(() => {
     if (!mapObj.current || !mapReady) return
-    overlays.current.forEach(o => o.setMap(null))
+    // 기존 오버레이 제거
+    overlays.current.forEach(o => mapObj.current.removeLayer(o))
     overlays.current = []
+
     const color = voteType === 'early' ? '#1565c0' : '#d32f2f'
     const lbl = voteType === 'early' ? '사전' : '본'
+
     activeStations.forEach(s => {
-      const pos = new window.kakao.maps.LatLng(s.lat, s.lng)
-      const marker = new window.kakao.maps.Marker({ position: pos, map: mapObj.current })
-      const info = new window.kakao.maps.InfoWindow({
-        content: `<div style="padding:8px 12px;font-size:13px;white-space:nowrap"><b>[${lbl}] ${s.name}</b><br><span style="color:#666;font-size:12px">${s.addr}</span></div>`,
-      })
-      window.kakao.maps.event.addListener(marker, 'click', () => {
-        if (openInfo.current) openInfo.current.close()
-        info.open(mapObj.current, marker)
-        openInfo.current = info
-      })
-      const circle = new window.kakao.maps.Circle({
-        center: pos, radius: 100, strokeWeight: 1.5,
-        strokeColor: color, strokeOpacity: 0.5, fillColor: color, fillOpacity: 0.12, map: mapObj.current,
-      })
+      // 마커
+      const marker = window.L.marker([s.lat, s.lng])
+        .bindPopup(`<b>[${lbl}] ${s.name}</b><br><span style="color:#666;font-size:12px">${s.addr}</span>`)
+        .addTo(mapObj.current)
+      // 100m 반경 원
+      const circle = window.L.circle([s.lat, s.lng], {
+        radius: 100,
+        color: color,
+        weight: 1.5,
+        opacity: 0.5,
+        fillColor: color,
+        fillOpacity: 0.12,
+      }).addTo(mapObj.current)
       overlays.current.push(marker, circle)
     })
   }, [activeStations, voteType, mapReady])
 
-  // GPS
+  // GPS 위치 추적
   useEffect(() => {
     if (!navigator.geolocation) { setGpsError('GPS 미지원'); return }
     const id = navigator.geolocation.watchPosition(
@@ -146,7 +115,7 @@ export default function App() {
     return () => navigator.geolocation.clearWatch(id)
   }, [])
 
-  // 거리 계산 + 내 마커
+  // 거리 계산 + 내 위치 마커
   useEffect(() => {
     if (!myPos) return
     const d = activeStations.map(s => ({
@@ -156,30 +125,35 @@ export default function App() {
     const n = d[0] || null
     setNearest(n)
     setIsViolation(n ? n.distance <= 100 : false)
+
     if (mapObj.current && mapReady) {
-      const ll = new window.kakao.maps.LatLng(myPos.lat, myPos.lng)
-      if (myMarker.current) { myMarker.current.setPosition(ll) }
-      else {
-        const el = document.createElement('div')
-        el.style.cssText = 'width:16px;height:16px;background:#2196F3;border:3px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,.3)'
-        myMarker.current = new window.kakao.maps.CustomOverlay({ position: ll, content: el, map: mapObj.current, zIndex: 999 })
+      const latlng = [myPos.lat, myPos.lng]
+      if (myMarker.current) {
+        myMarker.current.setLatLng(latlng)
+      } else {
+        // 내 위치 파란 점 (커스텀 DivIcon)
+        const icon = window.L.divIcon({
+          html: '<div style="width:16px;height:16px;background:#2196F3;border:3px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,.3)"></div>',
+          className: '',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        })
+        myMarker.current = window.L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(mapObj.current)
       }
     }
   }, [myPos, activeStations, mapReady])
 
   const goMyLoc = useCallback(() => {
     if (!myPos || !mapObj.current) return
-    mapObj.current.setCenter(new window.kakao.maps.LatLng(myPos.lat, myPos.lng))
-    mapObj.current.setLevel(3)
+    mapObj.current.setView([myPos.lat, myPos.lng], 17)
   }, [myPos])
 
   const goStation = useCallback(s => {
     setTab('map')
     setTimeout(() => {
       if (!mapObj.current) return
-      mapObj.current.relayout()
-      mapObj.current.setCenter(new window.kakao.maps.LatLng(s.lat, s.lng))
-      mapObj.current.setLevel(3)
+      mapObj.current.invalidateSize()
+      mapObj.current.setView([s.lat, s.lng], 17)
     }, 100)
   }, [])
 
@@ -192,6 +166,7 @@ export default function App() {
     const co = myPos ? `${myPos.lat.toFixed(5)}, ${myPos.lng.toFixed(5)}` : '미확인'
     const title = `[단속] ${tl} ${sn} ${dist}m`
     const text = `구분: ${tl}\n투표소: ${sn}\n거리: ${dist}m\n좌표: ${co}\n시각: ${ds}`
+
     if (navigator.share) {
       try {
         const data = { title, text }
@@ -216,13 +191,12 @@ export default function App() {
         <button style={{ ...S.modeBtn, ...(voteType === 'early' ? S.modeOn : S.modeOff) }} onClick={() => setVoteType('early')}>사전투표 (5/29~30)</button>
         <button style={{ ...S.modeBtn, ...(voteType === 'main' ? S.modeOnR : S.modeOff) }} onClick={() => setVoteType('main')}>본투표 (6/3)</button>
       </div>
-      <div style={{ ...S.bar, background: mapStatus ? '#555' : isViolation ? '#d32f2f' : '#2e7d32' }}>
-        <span style={S.barTxt}>{mapStatus || (gpsError ? `⚠ ${gpsError}` : nearest ? `${isViolation ? '⛔ 위반구역' : '✅ 안전구역'} — ${nearest.name} ${nearest.distance}m` : 'GPS 위치 탐색 중...')}</span>
+      <div style={{ ...S.bar, background: isViolation ? '#d32f2f' : '#2e7d32' }}>
+        <span style={S.barTxt}>{gpsError ? `⚠ ${gpsError}` : nearest ? `${isViolation ? '⛔ 위반구역' : '✅ 안전구역'} — ${nearest.name} ${nearest.distance}m` : 'GPS 위치 탐색 중...'}</span>
       </div>
       <div style={S.main}>
         <div style={{ ...S.panel, display: tab === 'map' ? 'block' : 'none' }}>
           <div ref={mapEl} style={S.map} />
-          {mapStatus && <div style={S.mapDebug}>{mapStatus}</div>}
         </div>
         {tab === 'list' && (
           <div style={S.panel}>
@@ -234,7 +208,7 @@ export default function App() {
                 </div>
                 <div style={S.lr}>
                   <div style={{ ...S.ld, color: s.distance <= 100 ? '#d32f2f' : '#555' }}>{s.distance}m</div>
-                  <a href={kakaoMapUrl(s.name, s.lat, s.lng)} target="_blank" rel="noopener noreferrer" style={S.ml} onClick={e => e.stopPropagation()}>🗺 크게보기</a>
+                  <a href={externalMapUrl(s.lat, s.lng)} target="_blank" rel="noopener noreferrer" style={S.ml} onClick={e => e.stopPropagation()}>🗺 길찾기</a>
                 </div>
               </div>
             ))}{distances.length === 0 && <div style={S.le}>{myPos ? '투표소 로딩 중...' : 'GPS 위치 확인 후 표시됩니다'}</div>}</div>
@@ -276,20 +250,19 @@ const S = {
   modeOn: { background: '#1565c0', color: '#fff' }, modeOnR: { background: '#c62828', color: '#fff' }, modeOff: { background: '#2a2a3e', color: '#888' },
   bar: { padding: '10px 16px', textAlign: 'center', flexShrink: 0, zIndex: 10 }, barTxt: { color: '#fff', fontSize: '14px', fontWeight: 'bold' },
   main: { flex: 1, position: 'relative', overflow: 'hidden' },
-  panel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'auto' }, map: { width: '100%', height: '100%', background: '#e0e0e0' },
-  mapDebug: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: 'rgba(0,0,0,0.8)', color: '#fff', padding: '16px 24px', borderRadius: '12px', fontSize: '14px', zIndex: 5, textAlign: 'center' },
+  panel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'auto' }, map: { width: '100%', height: '100%' },
   lh: { padding: '12px 16px', fontSize: '13px', fontWeight: 'bold', color: '#333', background: '#fff', borderBottom: '1px solid #e0e0e0' },
   li: { display: 'flex', alignItems: 'center', padding: '14px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0', cursor: 'pointer' },
   ln: { fontSize: '15px', fontWeight: 'bold', color: '#222' }, la: { fontSize: '12px', color: '#888', marginTop: '2px' },
   lr: { textAlign: 'right', minWidth: '70px', flexShrink: 0 }, ld: { fontSize: '16px', fontWeight: 'bold' },
   ml: { fontSize: '11px', color: '#1565c0', textDecoration: 'none', display: 'inline-block', marginTop: '4px' },
   le: { padding: '40px 16px', textAlign: 'center', color: '#999', fontSize: '14px' },
-  btns: { position: 'absolute', bottom: '70px', left: 0, right: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 10, pointerEvents: 'none' },
+  btns: { position: 'absolute', bottom: '70px', left: 0, right: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 1000, pointerEvents: 'none' },
   locBtn: { pointerEvents: 'auto', width: '48px', height: '48px', fontSize: '20px', background: '#fff', border: '1px solid #ddd', borderRadius: '50%', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.2)' },
   camBtn: { pointerEvents: 'auto', padding: '14px 32px', background: '#d32f2f', color: '#fff', fontSize: '17px', fontWeight: 'bold', border: 'none', borderRadius: '28px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)' },
   shareBtn: { pointerEvents: 'auto', padding: '14px 32px', background: '#1565c0', color: '#fff', fontSize: '17px', fontWeight: 'bold', border: 'none', borderRadius: '28px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)' },
   setBtn: { pointerEvents: 'auto', width: '48px', height: '48px', fontSize: '20px', background: '#fff', border: '1px solid #ddd', borderRadius: '50%', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.2)' },
-  dim: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+  dim: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 },
   modal: { background: '#fff', borderRadius: '16px', padding: '24px', width: '85%', maxWidth: '360px' },
   inp: { width: '100%', padding: '10px 12px', fontSize: '15px', border: '1px solid #ddd', borderRadius: '8px', boxSizing: 'border-box', marginBottom: '12px', marginTop: '6px' },
   closeBtn: { width: '100%', padding: '12px', background: '#1565c0', color: '#fff', fontSize: '15px', fontWeight: 'bold', border: 'none', borderRadius: '8px', cursor: 'pointer' },
