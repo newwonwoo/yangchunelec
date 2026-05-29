@@ -49,22 +49,40 @@ export default function App() {
   const overlays = useRef([])
   const openInfo = useRef(null)
 
-  // ═══ 지도 초기화 — 처음 잘 되던 구조 그대로 ═══
+  // ═══ 지도 초기화 — 디버그 메시지 포함 ═══
+  const [mapStatus, setMapStatus] = useState('SDK 로딩 대기... (v7)')
+
   useEffect(() => {
+    let attempt = 0
     const init = () => {
-      if (!window.kakao?.maps?.LatLng || !mapEl.current) {
+      attempt++
+      if (!window.kakao?.maps?.LatLng) {
+        setMapStatus(`카카오맵 SDK 로딩 중... (${attempt})`)
+        if (attempt > 50) { setMapStatus('❌ 카카오맵 SDK 로딩 실패 — API키/도메인 확인 필요'); return }
+        setTimeout(init, 200)
+        return
+      }
+      if (!mapEl.current) {
+        setMapStatus('지도 영역 준비 대기...')
         setTimeout(init, 200)
         return
       }
       if (mapObj.current) return
 
-      const map = new window.kakao.maps.Map(mapEl.current, {
-        center: new window.kakao.maps.LatLng(37.5171, 126.8665),
-        level: 5,
-      })
-      map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT)
-      mapObj.current = map
-      setMapReady(true)
+      try {
+        setMapStatus('지도 생성 중...')
+        const map = new window.kakao.maps.Map(mapEl.current, {
+          center: new window.kakao.maps.LatLng(37.5171, 126.8665),
+          level: 5,
+        })
+        map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT)
+        mapObj.current = map
+        setMapReady(true)
+        setMapStatus('✅ 지도 생성 완료')
+        setTimeout(() => setMapStatus(''), 3000)  // 3초 후 정상 상태 바로 전환
+      } catch (e) {
+        setMapStatus('❌ 지도 생성 실패: ' + e.message)
+      }
     }
     init()
   }, [])
@@ -181,11 +199,14 @@ export default function App() {
         <button style={{ ...S.modeBtn, ...(voteType === 'early' ? S.modeOn : S.modeOff) }} onClick={() => setVoteType('early')}>사전투표 (5/29~30)</button>
         <button style={{ ...S.modeBtn, ...(voteType === 'main' ? S.modeOnR : S.modeOff) }} onClick={() => setVoteType('main')}>본투표 (6/3)</button>
       </div>
-      <div style={{ ...S.bar, background: isViolation ? '#d32f2f' : '#2e7d32' }}>
-        <span style={S.barTxt}>{gpsError ? `⚠ ${gpsError}` : nearest ? `${isViolation ? '⛔ 위반구역' : '✅ 안전구역'} — ${nearest.name} ${nearest.distance}m` : 'GPS 위치 탐색 중...'}</span>
+      <div style={{ ...S.bar, background: mapStatus ? '#555' : isViolation ? '#d32f2f' : '#2e7d32' }}>
+        <span style={S.barTxt}>{mapStatus || (gpsError ? `⚠ ${gpsError}` : nearest ? `${isViolation ? '⛔ 위반구역' : '✅ 안전구역'} — ${nearest.name} ${nearest.distance}m` : 'GPS 위치 탐색 중...')}</span>
       </div>
       <div style={S.main}>
-        <div style={{ ...S.panel, display: tab === 'map' ? 'block' : 'none' }}><div ref={mapEl} style={S.map} /></div>
+        <div style={{ ...S.panel, display: tab === 'map' ? 'block' : 'none' }}>
+          <div ref={mapEl} style={S.map} />
+          {mapStatus && <div style={S.mapDebug}>{mapStatus}</div>}
+        </div>
         {tab === 'list' && (
           <div style={S.panel}>
             <div style={S.lh}>[{tl}] 투표소 {activeStations.length}개소 — {td}</div>
@@ -238,7 +259,8 @@ const S = {
   modeOn: { background: '#1565c0', color: '#fff' }, modeOnR: { background: '#c62828', color: '#fff' }, modeOff: { background: '#2a2a3e', color: '#888' },
   bar: { padding: '10px 16px', textAlign: 'center', flexShrink: 0, zIndex: 10 }, barTxt: { color: '#fff', fontSize: '14px', fontWeight: 'bold' },
   main: { flex: 1, position: 'relative', overflow: 'hidden' },
-  panel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'auto' }, map: { width: '100%', height: '100%' },
+  panel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'auto' }, map: { width: '100%', height: '100%', background: '#e0e0e0' },
+  mapDebug: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: 'rgba(0,0,0,0.8)', color: '#fff', padding: '16px 24px', borderRadius: '12px', fontSize: '14px', zIndex: 5, textAlign: 'center' },
   lh: { padding: '12px 16px', fontSize: '13px', fontWeight: 'bold', color: '#333', background: '#fff', borderBottom: '1px solid #e0e0e0' },
   li: { display: 'flex', alignItems: 'center', padding: '14px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0', cursor: 'pointer' },
   ln: { fontSize: '15px', fontWeight: 'bold', color: '#222' }, la: { fontSize: '12px', color: '#888', marginTop: '2px' },
