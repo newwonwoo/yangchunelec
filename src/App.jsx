@@ -50,25 +50,13 @@ export default function App() {
   const openInfo = useRef(null)
 
   // ═══ 지도 초기화 — 디버그 메시지 포함 ═══
-  const [mapStatus, setMapStatus] = useState('SDK 로딩 대기... (v7)')
+  const [mapStatus, setMapStatus] = useState('SDK 로딩 대기... (v8)')
 
   useEffect(() => {
     let attempt = 0
-    const init = () => {
-      attempt++
-      if (!window.kakao?.maps?.LatLng) {
-        setMapStatus(`카카오맵 SDK 로딩 중... (${attempt})`)
-        if (attempt > 50) { setMapStatus('❌ 카카오맵 SDK 로딩 실패 — API키/도메인 확인 필요'); return }
-        setTimeout(init, 200)
-        return
-      }
-      if (!mapEl.current) {
-        setMapStatus('지도 영역 준비 대기...')
-        setTimeout(init, 200)
-        return
-      }
-      if (mapObj.current) return
 
+    const createMap = () => {
+      if (!mapEl.current || mapObj.current) return
       try {
         setMapStatus('지도 생성 중...')
         const map = new window.kakao.maps.Map(mapEl.current, {
@@ -79,10 +67,39 @@ export default function App() {
         mapObj.current = map
         setMapReady(true)
         setMapStatus('✅ 지도 생성 완료')
-        setTimeout(() => setMapStatus(''), 3000)  // 3초 후 정상 상태 바로 전환
+        setTimeout(() => setMapStatus(''), 3000)
       } catch (e) {
         setMapStatus('❌ 지도 생성 실패: ' + e.message)
       }
+    }
+
+    const init = () => {
+      attempt++
+      // 1) 스크립트 자체가 아직 안 들어옴
+      if (!window.kakao?.maps) {
+        setMapStatus(`SDK 스크립트 로딩 중... (${attempt})`)
+        if (attempt > 50) { setMapStatus('❌ SDK 스크립트 로딩 실패 — API키 확인'); return }
+        setTimeout(init, 200)
+        return
+      }
+      // 2) autoload=false 캐시 버전 → kakao.maps.load() 호출 필요
+      if (typeof window.kakao.maps.load === 'function' && !window.kakao.maps.LatLng) {
+        setMapStatus('SDK load() 호출 중...')
+        window.kakao.maps.load(() => {
+          setMapStatus('SDK load() 완료')
+          createMap()
+        })
+        return
+      }
+      // 3) 정상 로딩 (autoload 없음) → LatLng 바로 사용 가능
+      if (window.kakao.maps.LatLng) {
+        createMap()
+        return
+      }
+      // 4) 그 외 (아직 준비 안 됨)
+      setMapStatus(`SDK 준비 대기 중... (${attempt})`)
+      if (attempt > 50) { setMapStatus('❌ SDK 준비 실패'); return }
+      setTimeout(init, 200)
     }
     init()
   }, [])
