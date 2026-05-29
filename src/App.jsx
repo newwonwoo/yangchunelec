@@ -116,22 +116,24 @@ export default function App() {
   const openInfoRef = useRef(null)
 
   // ========================================
-  // 0) 좌표 변환 (최초 1회)
+  // 0) 카카오 SDK 로딩 (autoload=false이므로 수동 load 필요)
+  // ========================================
+  const [sdkLoaded, setSdkLoaded] = useState(false)
+
+  useEffect(() => {
+    const waitScript = () => {
+      if (!window.kakao?.maps?.load) { setTimeout(waitScript, 200); return }
+      window.kakao.maps.load(() => setSdkLoaded(true))
+    }
+    waitScript()
+  }, [])
+
+  // ========================================
+  // 0-1) 좌표 변환 (SDK 로드 후 최초 1회)
   // ========================================
   useEffect(() => {
+    if (!sdkLoaded) return
     const doGeocode = async () => {
-      // SDK 로딩 대기
-      const waitForKakao = () => new Promise((resolve) => {
-        const check = () => {
-          if (window.kakao?.maps?.services) resolve()
-          else setTimeout(check, 200)
-        }
-        check()
-      })
-
-      setGeocodeProgress('지도 로딩 중...')
-      await waitForKakao()
-
       // 캐시가 있으면 즉시 로드
       try {
         const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')
@@ -152,28 +154,22 @@ export default function App() {
       setGeocodedStations(result)
       setGeocodeProgress('')
     }
+    setGeocodeProgress('지도 로딩 중...')
     doGeocode()
-  }, [])
+  }, [sdkLoaded])
 
   // ========================================
-  // 1) 카카오 지도 초기화
+  // 1) 카카오 지도 초기화 (SDK 로드 후)
   // ========================================
   useEffect(() => {
-    const initMap = () => {
-      if (!window.kakao?.maps?.LatLng || !mapContainerRef.current) {
-        setTimeout(initMap, 200)
-        return
-      }
-      if (mapRef.current) return
+    if (!sdkLoaded || !mapContainerRef.current || mapRef.current) return
 
-      const center = new window.kakao.maps.LatLng(37.5171, 126.8665)
-      const map = new window.kakao.maps.Map(mapContainerRef.current, { center, level: 5 })
-      map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT)
-      mapRef.current = map
-      setMapReady(true)
-    }
-    initMap()
-  }, [])
+    const center = new window.kakao.maps.LatLng(37.5171, 126.8665)
+    const map = new window.kakao.maps.Map(mapContainerRef.current, { center, level: 5 })
+    map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT)
+    mapRef.current = map
+    setMapReady(true)
+  }, [sdkLoaded])
 
   // ========================================
   // 2) 탭 복귀 시 relayout
