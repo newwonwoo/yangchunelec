@@ -42,6 +42,7 @@ export default function App() {
   const [email, setEmail] = useState(() => {
     try { return localStorage.getItem(EMAIL_KEY) || DEFAULT_EMAIL } catch (e) { return DEFAULT_EMAIL }
   })
+  const [searchQuery, setSearchQuery] = useState('')
 
   const activeStations = useMemo(() => STATIONS.filter(s => s.type === voteType), [voteType])
 
@@ -201,7 +202,21 @@ export default function App() {
         {tab === 'list' && (
           <div style={S.panel}>
             <div style={S.lh}>[{tl}] 투표소 {activeStations.length}개소 — {td}</div>
-            <div>{distances.map(s => (
+            <div style={S.searchWrap}>
+              <input
+                style={S.searchInp}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="🔍 투표소명/주소 검색"
+              />
+              {searchQuery && <button style={S.searchClear} onClick={() => setSearchQuery('')}>✕</button>}
+            </div>
+            <div>{distances.filter(s => {
+              if (!searchQuery.trim()) return true
+              const q = searchQuery.trim().toLowerCase()
+              return s.name.toLowerCase().includes(q) || s.addr.toLowerCase().includes(q)
+            }).map(s => (
               <div key={s.id} style={{ ...S.li, borderLeft: s.distance <= 100 ? '4px solid #d32f2f' : `4px solid ${voteType === 'early' ? '#1565c0' : '#2e7d32'}` }}>
                 <div style={{ flex: 1 }} onClick={() => goStation(s)}>
                   <div style={S.ln}>{s.name}</div><div style={S.la}>{s.addr}</div>
@@ -217,11 +232,16 @@ export default function App() {
       </div>
       {tab === 'map' && (
         <div style={S.btns}>
-          {myPos && <button style={S.locBtn} onClick={goMyLoc}>📍</button>}
-          {!photoTaken
-            ? <label style={S.camBtn}>📷 단속 촬영<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} /></label>
-            : <button style={S.shareBtn} onClick={handleShare}>📤 공유</button>}
-          <button style={S.setBtn} onClick={() => setShowSettings(true)}>⚙</button>
+          {myPos && <button style={S.locBtn} onClick={goMyLoc}>📍 내 위치</button>}
+          {!photoTaken ? (
+            <label style={S.camBtn}>📷 단속 촬영<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} /></label>
+          ) : (
+            <>
+              <label style={S.retakeBtn}>📷 다시<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} /></label>
+              <button style={S.shareBtn} onClick={handleShare}>📤 공유</button>
+            </>
+          )}
+          <button style={S.setBtn} onClick={() => setShowSettings(true)}>⚙ 설정</button>
         </div>
       )}
       {showSettings && (
@@ -252,16 +272,20 @@ const S = {
   main: { flex: 1, position: 'relative', overflow: 'hidden' },
   panel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'auto' }, map: { width: '100%', height: '100%' },
   lh: { padding: '12px 16px', fontSize: '13px', fontWeight: 'bold', color: '#333', background: '#fff', borderBottom: '1px solid #e0e0e0' },
+  searchWrap: { position: 'relative', padding: '10px 12px', background: '#fff', borderBottom: '1px solid #e0e0e0' },
+  searchInp: { width: '100%', padding: '10px 36px 10px 14px', fontSize: '14px', border: '1px solid #ddd', borderRadius: '20px', boxSizing: 'border-box', outline: 'none' },
+  searchClear: { position: 'absolute', right: '20px', top: '50%', transform: 'translateY(-50%)', width: '24px', height: '24px', background: '#bbb', color: '#fff', border: 'none', borderRadius: '50%', fontSize: '12px', cursor: 'pointer', lineHeight: 1 },
   li: { display: 'flex', alignItems: 'center', padding: '14px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0', cursor: 'pointer' },
   ln: { fontSize: '15px', fontWeight: 'bold', color: '#222' }, la: { fontSize: '12px', color: '#888', marginTop: '2px' },
   lr: { textAlign: 'right', minWidth: '70px', flexShrink: 0 }, ld: { fontSize: '16px', fontWeight: 'bold' },
   ml: { fontSize: '11px', color: '#1565c0', textDecoration: 'none', display: 'inline-block', marginTop: '4px' },
   le: { padding: '40px 16px', textAlign: 'center', color: '#999', fontSize: '14px' },
   btns: { position: 'absolute', bottom: '70px', left: 0, right: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 1000, pointerEvents: 'none' },
-  locBtn: { pointerEvents: 'auto', width: '48px', height: '48px', fontSize: '20px', background: '#fff', border: '1px solid #ddd', borderRadius: '50%', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.2)' },
-  camBtn: { pointerEvents: 'auto', padding: '14px 32px', background: '#d32f2f', color: '#fff', fontSize: '17px', fontWeight: 'bold', border: 'none', borderRadius: '28px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)' },
-  shareBtn: { pointerEvents: 'auto', padding: '14px 32px', background: '#1565c0', color: '#fff', fontSize: '17px', fontWeight: 'bold', border: 'none', borderRadius: '28px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)' },
-  setBtn: { pointerEvents: 'auto', width: '48px', height: '48px', fontSize: '20px', background: '#fff', border: '1px solid #ddd', borderRadius: '50%', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.2)' },
+  locBtn: { pointerEvents: 'auto', padding: '10px 16px', fontSize: '13px', fontWeight: 'bold', background: '#fff', color: '#333', border: '1px solid #ddd', borderRadius: '20px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.2)' },
+  camBtn: { pointerEvents: 'auto', padding: '14px 28px', background: '#d32f2f', color: '#fff', fontSize: '16px', fontWeight: 'bold', border: 'none', borderRadius: '28px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)' },
+  retakeBtn: { pointerEvents: 'auto', padding: '12px 20px', background: '#d32f2f', color: '#fff', fontSize: '14px', fontWeight: 'bold', border: 'none', borderRadius: '24px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)' },
+  shareBtn: { pointerEvents: 'auto', padding: '12px 24px', background: '#1565c0', color: '#fff', fontSize: '15px', fontWeight: 'bold', border: 'none', borderRadius: '24px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)' },
+  setBtn: { pointerEvents: 'auto', padding: '10px 16px', fontSize: '13px', fontWeight: 'bold', background: '#fff', color: '#333', border: '1px solid #ddd', borderRadius: '20px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.2)' },
   dim: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 },
   modal: { background: '#fff', borderRadius: '16px', padding: '24px', width: '85%', maxWidth: '360px' },
   inp: { width: '100%', padding: '10px 12px', fontSize: '15px', border: '1px solid #ddd', borderRadius: '8px', boxSizing: 'border-box', marginBottom: '12px', marginTop: '6px' },
